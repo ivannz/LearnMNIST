@@ -9,7 +9,7 @@ loadMNISTData <- function(dataFilename, labelFilename){
   # Returns:
   # The data and the labels combined in a list data structure
   
-  dataFileIn = file(dataFilename, "rb")
+  dataFileIn <- if( !gz ) file(dataFilename, "rb") else gzfile(dataFilename, "rb")
   
   #read the first unsigned byte
   dummyByte = readBin(dataFileIn, integer(), n = 1, size = 4, endian = "big")
@@ -34,7 +34,7 @@ loadMNISTData <- function(dataFilename, labelFilename){
   
   #read the labels
   #open MNIST data file; 
-  dataFileIn = file(labelFilename, "rb")
+  dataFileIn <- if( !gz ) file(labelFilename, "rb") else gzfile(labelFilename, "rb")
   
   #read the first unsigned byte
   dummy_byte = readBin(dataFileIn, integer(), n = 1, size = 4, endian = "big")

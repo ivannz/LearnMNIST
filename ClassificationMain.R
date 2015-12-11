@@ -1,8 +1,8 @@
 # This sciprt file contains a frame for learning handwritten digitals from the MNIST dataset
 
 # load training data from files
-# data <- loadMNISTData("C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-images.idx3-ubyte", "C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-labels.idx1-ubyte")
-data <- loadMNISTData("./data/train-images.idx3-ubyte", "./data/train-labels.idx1-ubyte")
+# data <- loadMNISTData("C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-images.idx3-ubyte", "C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-labels.idx1-ubyte", gz = FALSE )
+data <- loadMNISTData("./data/train-images.idx3-ubyte", "./data/train-labels.idx1-ubyte", gz = TRUE )
 trainLabels <- data$labels
 trainData <- data$data
 
@@ -30,8 +30,8 @@ print(sum(predictedLabels == trainLabels)/length(trainLabels))
 
 
 # test the model
-# data <- loadMNISTData("C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\t10k-images.idx3-ubyte", "C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\t10k-labels.idx1-ubyte")
-data <- loadMNISTData("./data/t10k-images.idx3-ubyte", "./data/t10k-labels.idx1-ubyte")
+# data <- loadMNISTData("C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\t10k-images.idx3-ubyte", "C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\t10k-labels.idx1-ubyte", gz = FALSE )
+data <- loadMNISTData("./data/t10k-images.idx3-ubyte", "./data/t10k-labels.idx1-ubyte", gz = TRUE )
 testLabels <- data$labels
 testData <- data$data
 
