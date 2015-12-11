@@ -1,4 +1,4 @@
-loadMNISTData <- function(dataFilename, labelFilename){
+loadMNISTData <- function(dataFilename, labelFilename, gzip = FALSE ){
   # Loads the data from the MNIST dataset. The data can be downloaded from: 
   # http://yann.lecun.com/exdb/mnist/
   #
@@ -9,7 +9,7 @@ loadMNISTData <- function(dataFilename, labelFilename){
   # Returns:
   # The data and the labels combined in a list data structure
   
-  dataFileIn <- if( !gz ) file(dataFilename, "rb") else gzfile(dataFilename, "rb")
+  dataFileIn <- if( !gzip ) file(dataFilename, "rb") else gzfile(dataFilename, "rb")
   
   #read the first unsigned byte
   dummyByte = readBin(dataFileIn, integer(), n = 1, size = 4, endian = "big")
@@ -34,7 +34,7 @@ loadMNISTData <- function(dataFilename, labelFilename){
   
   #read the labels
   #open MNIST data file; 
-  dataFileIn <- if( !gz ) file(labelFilename, "rb") else gzfile(labelFilename, "rb")
+  dataFileIn <- if( !gzip ) file(labelFilename, "rb") else gzfile(labelFilename, "rb")
   
   #read the first unsigned byte
   dummy_byte = readBin(dataFileIn, integer(), n = 1, size = 4, endian = "big")
