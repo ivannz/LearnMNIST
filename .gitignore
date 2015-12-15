@@ -1,4 +1,6 @@
 *.gz
 data
-
+*.bak
+.DS_Store
+.Rapp.history
 
