@@ -1,10 +1,13 @@
+rm( list = ls( all.names = TRUE ) ) ;  gc( )
 # This sciprt file contains a frame for learning handwritten digitals from the MNIST dataset
+setwd( "~/Github/LearnMNIST/" )
+source( "load_data.R" )
 
 # load training data from files
 # data <- loadMNISTData("C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-images.idx3-ubyte", "C:\\Users\\User\\YandexDisk\\teaching\\advanced_topics_in_machine_learning\\train-labels.idx1-ubyte", gzip = FALSE )
-data <- loadMNISTData("./data/train-images.idx3-ubyte.gz", "./data/train-labels.idx1-ubyte.gz", gzip = TRUE )
-trainLabels <- data$labels
-trainData <- data$data
+train <- loadMNISTData("./data/train-images.idx3-ubyte.gz", "./data/train-labels.idx1-ubyte.gz", gzip = TRUE )
+trainLabels <- train$labels
+trainData <- train$data
 
 print(dim(trainData))
 print(dim(trainLabels))
