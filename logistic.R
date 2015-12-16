@@ -53,8 +53,30 @@
 ## IE R unravels matrix in column order and then applies the operation
 ##  recylcing the original vector, if needed.
 
-#### Internal functions
-"get_update" <- function( momentum = c( "simple", "nesterov", "none" ), beta = 0 ) {
+#### PRIVATE FUNCTIONS
+.get_update <- function( momentum = c( "simple", "nesterov", "none" ),
+                         beta = 0, rms_weight = 0 ) {
+## Creates a special function, which accepts the gradient, the current
+##  estimate of the coefficients and the learning_rate, and does a
+##  gradient descent step.
+## Gradient adjustment step
+    if( rms_weight > 0 ) {
+## RMS prop attempts to approximate the diagonal of the Hessian
+##  through exponentially weighted $\nabla f(\theta_t) \nabla f'(\theta_t)$.
+##  Alternatively, this estimates the accumulated EWMA variance
+##  of each element of the gradient. The higher the variance,
+##  the more iiregular the direction is, hence the more tamed
+##  should its movements be.
+        acc_grad_sq <- 1.0
+        grad_adjust_fn <- function( grad ) {
+                acc_grad_sq <<- ( 1 - rms_weight ) * ( grad ** 2 ) + rms_weight * acc_grad_sq
+                grad / sqrt( acc_grad_sq )
+            }
+    } else {
+        grad_adjust_fn <- identity
+    }
+    
+## SGD update functions
 ## c.f. Sutskever, Martens et al. 2013, Proceedings of the 30-th
 ##      International Conference on Machine Learning, Atlanta, Georgia, USA, 2013.
     if( momentum == "nesterov" ) {
@@ -64,7 +86,7 @@
         acc_grad_ <- 0
         update_fn <- function( theta, learning_rate, grad ) {
                 step_ <- beta * acc_grad_
-                acc_grad_ <<- step_ + learning_rate * grad( theta - step_ )
+                acc_grad_ <<- step_ + learning_rate * grad_adjust_fn( grad( theta - step_ ) )
                 return( theta - acc_grad_ )
             }
     } else if( momentum == "simple" && beta > 0 ) {
@@ -73,27 +95,37 @@
 ## Return an update step with simple (Classical) momentum
         acc_grad_ <- 0
         update_fn <- function( theta, learning_rate, grad ) {
-                acc_grad_ <<- learning_rate * grad( theta ) + beta * acc_grad_
+                acc_grad_ <<- learning_rate * grad_adjust_fn( grad( theta ) ) + beta * acc_grad_
                 return( theta - acc_grad_ )
             }
     } else if( momentum == "none" ) {
 ## Return an SGD update step
         update_fn <- function( theta, learning_rate, grad ) {
-                return( theta - learning_rate * grad( theta ) )
+                return( theta - learning_rate * grad_adjust_fn( grad( theta ) ) )
             }
     } else
         stop( "Supported momementum modes are: 'none', 'simple' and 'nesterov'" )
+
     return( update_fn )
+## Use environment( updater_ ) to inspect the variables in
+##   the functional closure.
 }
 
-## R's matrices are columnwise, so this maintains the original ordering.
+##### R's matrices are columnwise.
 
 ## Creates a round-robin group assignment for an array of length n
 .group <- function( n, m )
     rep( 1 : ( ( n + m - 1 ) %/% m ), m )[ 1 : n ]
 
 ## Computes the softmax prediction of the logistic regression
-.predict_proba <- function( X, theta, .log = FALSE ) {
+.predict_proba <- function( theta, X, .log = FALSE ) {
+## Compute the probabilities inferred by the model for
+##   the given input samples X.
+##  theta[matrix] -- the coefficients of the logisitc regression;
+##  X[matrix] -- the current coefficients of the log regression model;
+##  .log[bool] -- If this is set to TRUE, the logarithms of
+##        probabilities are returned.
+
 ## Compute the terms in exponents
     f_ <- X %*% theta
 ## Normalise the exponents
@@ -109,17 +141,25 @@
         } )
 }
 
-## Compute the gradient over X (2D) and y (1D) at theta (1D)
-.gradient <- function( X, y, theta ) {
-## Softmax
-    p <- .predict_proba( X, theta )
+.gradient <- function( theta, X, y ) {
+## Compute the gradient over provided dataset (X, y).X (2D) and y (1D) at theta (1D)
+##  theta[matrix] -- the coefficients of the logisitc regression;
+##  X[matrix] -- the input samples;
+##  y[vector] -- target values (class labels).
+    p <- .predict_proba( theta, X )
 ## The gradient is given \nabla L = by n^{-1} \sum_{i=1}^n x_i ( p_k(x_i) - e_{y_ik} ) :
 ##   equivalent (but slighty faster than t( X ) %*% loss ).
     crossprod( X, p - diag( dim( theta )[ 2 ] )[ y, ] ) / nrow( X )
 }
 
 .regularize_theta <- function( lambda, theta, grad, intercept = 0 ) {
-## The L^2 regularizer
+## Apply L^2 regularizer to the given gradient at the current
+##  estimates of coefficients.
+##   lambda[numeric] -- the weight of the L^2 regualrizer.
+##   theta[matrix] -- the coefficients of the logisitc regression;
+##   grad[matrix] -- object of the same shape as theta;
+##   intercept[integer] -- the row number of the unit columns, most usually 1).
+## Replicate the L^2 regularizer weights
     lambda_ <- rep( lambda, dim( theta )[ 1 ] )
 ## the first row is bais weights, which is never regularized.
     if( intercept > 0 )
@@ -128,15 +168,22 @@
     grad + lambda_ * theta
 }
 
-## Compute teh log loss
+## Compute the logloss
 .logloss <- function( X, y, theta ) {
-    proba_ <- .predict_proba( X, theta )
+    proba_ <- .predict_proba( theta, X )
     proba_ <- proba_[ matrix( c( 1 : nrow( X ), y ), ncol = 2 ) ]
-    - sum( log( ifelse( proba_ > 0.0, ifelse( proba_ < 1.0, proba_, 1 - 1e-14 ), 1e-14 ) ) ) / nrow( X )
+    - mean( log( ifelse( proba_ > 0.0, ifelse( proba_ < 1.0, proba_, 1 - 1e-14 ), 1e-14 ) ) )
 }
 
+#### PUBLIC INTERFACE
 ## Returns an environment (a container) for the model
 init <- function( add_intercept = TRUE, lambda = 1.0, standardize = TRUE )
+## Create an instance of the logisitc regression model.
+##   add_intercept[boolean] -- whether to add a bias term to
+##         the logisitc regression;
+##   lambda[numeirc] -- the weight of L^2 regularizer;
+##   standardize[boolean] -- determines whether the data should
+##         be scaled to unit variance as well as mean shifted.
     list2env( list( add_intercept = add_intercept,
                     standardize = standardize,
                     lambda = lambda ),
@@ -145,7 +192,30 @@ init <- function( add_intercept = TRUE, lambda = 1.0, standardize = TRUE )
 fit <- function( model, X, y,
                  niter = 1000, learning_rate = 0.01,
                  momentum = "nesterov", beta = 0.9,
-                 batch_size = 32, verbose = 0, ... ) {
+                 rms_weight = 0, batch_size = 32,
+                 verbose = 0, ... ) {
+## Estimates a logisitc regression model using the specified
+##   tecnique over the training dataset (X, y).
+##  model -- a fitted instance of the logistic regression model;
+##  X[matrix] -- the input samples;
+##  y[vector] -- target values (class labels);
+##  niter[integer] -- the nuber of epochs of learning (iterations);
+##  learning_rate[numeric, function] -- the learning rate schedule
+##        to apply. In 'numeric', then the schedule is flat. Otherwise,
+##        the learning rate is received from the function(kiter, niter)
+##        where kiter is the current iteration, and niter is the total
+##        number of iterations;
+##  momentum[character] -- Selects which momentun mode to use: 
+##        implemented modes are 'none', 'simple' and 'nesterov';
+##  beta[double] -- the momentum paramter, determines the inertia of gradinets;
+##  rms_weight[double] -- the EWMA-like parameter of the RMS-prop (Hinton, 2012)
+##        technique, used to account for approximate curvature of
+##        the loss;
+##  batch_size[integer] -- the size of batch stochastic gradient descent;
+##  verbose[integer] -- determines the volume of debug and service messages
+##        printed.
+
+## __docstring__
     stopifnot( is.environment( model ) )
     model$theta_ <- NULL
 ## Get the classes
@@ -167,7 +237,7 @@ fit <- function( model, X, y,
 ##  uniformly random permutations are to be grouped with it.
     group_ <- .group( nrow( X ), batch_size )
 ## Get the required updater
-    updater_ <- get_update( momentum = momentum, beta = beta )
+    updater_ <- .get_update( momentum = momentum, beta = beta, rms_weight = rms_weight )
 ## use environment( updater_ ) to inspect its closure.
 ## Setup the learning rate schedule
     if( !is.function( learning_rate ) )
@@ -198,7 +268,7 @@ fit <- function( model, X, y,
             if( intercept_ > 0 ) X_ <- cbind( 1, X_ )
 ## Create a gradient by currinyg the batch function
             grad_ <- function( theta ) {
-                    grad_ <- .gradient( X_, y_, theta )
+                    grad_ <- .gradient( theta, X_, y_ )
                     .regularize_theta( model$lambda, theta, grad_, intercept = intercept_ )
             }
 ## Do the update
@@ -206,24 +276,30 @@ fit <- function( model, X, y,
                                    learning_rate = learning_rate_,
                                    grad = grad_ )
 ## Compute the new loss
-            batch_loss_ <- .logloss( X_, y_, theta_new )
+            if( verbose > 0 ) {
+                batch_loss_ <- .logloss( X_, y_, theta_new )
+                epoch_loss_ <- epoch_loss_ + batch_loss_ * batch_size
+            }
+## DEBUG report
             if( verbose > 10 ) {
                 norm_ <- sqrt( sum( ( theta_new - theta_ ) ** 2 ) )
                 cat( sprintf( "%s l^2 norm %f, loss %f\n",
                               batch_group_, norm_, batch_loss_ ) )
             }
+## Commit the update
             theta_ <- theta_new
-            epoch_loss_ <- epoch_loss_ + batch_loss_ * batch_size
         }
+## DEBUG report
         if( verbose > 0 ) {
             norm_ <- sqrt( sum( ( theta_new - theta_ ) ** 2 ) )
             cat( sprintf( "epoch %d, mean loss %f\n",
                           kiter, epoch_loss_ / nrow( X ) ) )
         }
+
         kiter <- kiter + 1
     } }, interrupt = function( e ) NULL,
          condition = signalCondition )
-## Return a model instance
+## Update the model instance
     model$intercept_ <- intercept_
     model$mean_ <- mean_
     model$std_ <- std_
@@ -231,23 +307,48 @@ fit <- function( model, X, y,
     return( model )
 }
 
-## Predict the class probability for the given data
-predict_proba <- function( model, data ) {
+predict_proba <- function( model, X ) {
+## Compute the probabilities inferred by the model for
+##   the given input samples X.
+##  model -- instance of a fitted logistic regression model;
+##  X[matrix] -- the input samples.
+
     stopifnot( !is.null( model$theta_ ) )
-    stopifnot( dim( data )[ 2 ] == model$dim_[ 1 ] - model$intercept_ )
+    stopifnot( dim( X )[ 2 ] == model$dim_[ 1 ] - model$intercept_ )
 ## Standardize the data
-    data_ <- t( ( t( data ) - model$mean_ ) / model$std_ )
+    X <- t( ( t( X ) - model$mean_ ) / model$std_ )
 ## Add the intercept if necessary
-    if( model$intercept_ > 0 ) data_ <- cbind( 1, data_ )
+    if( model$intercept_ > 0 ) X <- cbind( 1, X )
 ## Predict the class probabilities
-    .predict_proba( data_, model$theta_, .log = FALSE )
+    .predict_proba( model$theta_, X, .log = FALSE )
 }
 
-predict <- function( model, data ) {
-## Compute the inferred probabilities
-    proba_ <- predict_proba( model, data )
+predict <- function( model, X ) {
+## Compute the classes predicted by the model for
+##   the given input samples X.
+##  model -- instance of a fitted logistic regression model;
+##  X[matrix] -- the input samples.
+
+    proba_ <- predict_proba( model, X )
 ## Predict the label using MAP rule
     model$classes_[ apply( proba_, 1, which.max ) ]
+}
+
+logloss <- function( model, X, y ) {
+## Compute the loss of logistic regresssion (multinomial logloss)
+##   over some dataset (X, y).
+##  model -- a fitted instance of the logistic regression model;
+##  X[matrix] -- the input samples;
+##  y[vector] -- target values (class labels).
+
+## Predict the class probabilities
+    proba_ <- predict_proba( model, X )
+## encode the labels
+    labels_ <- match( y, model$classes_ )
+## get the predicted probability of the actual calss
+    proba_ <- proba_[ matrix( c( 1 : nrow( X ), labels_ ), ncol = 2 ) ]
+## Compute truncated mean log loss
+    - mean( log( ifelse( proba_ > 0.0, ifelse( proba_ < 1.0, proba_, 1 - 1e-14 ), 1e-14 ) ) )
 }
 
 #### User accessible functions
@@ -256,14 +357,16 @@ learnModel <- function( data, labels ) {
     fit( model, data, labels, 
          niter = 10, learning_rate = 0.01,
          momentum = "nesterov", beta = 0.8,
-         batch_size = 512, verbose = 1 )
+         rms_weight = 0, batch_size = 512,
+         verbose = 1 )
 }
 
-testModel <- function( model, data ) predict( model, data )
+testModel <- function( model, data ) predict( model, X = data )
 
 ### Sandbox
 if( FALSE ) {
-    classifier <- learnModel(data = trainData, labels = trainLabels)
+    classifier <- learnModel( data = trainData, labels = trainLabels )
+    classifier <- logloss( classifier, data = trainData, labels = trainLabels )
 
     images_ <- classifier$theta_[-1,]
     images_ <- ( images_ - min( images_ ) ) / ( max( images_ ) - min( images_ ) )
@@ -271,23 +374,5 @@ if( FALSE ) {
     for( n in 1:10 )
         image( t(matrix(images_[,n], ncol=28, nrow=28)), Rowv=28, Colv=28, col = heat.colors(256),  margins=c(5,10))
 
-
-
-
-    ####### Func Test
-    theta <- matrix( 1:12, 3, 4 )
-    grad <- function( theta )
-        return( do.call( matrix, args = c( list( 1 ), dim(theta) ) ) )
-
-    updater_ <- get_update(momentum = "nesterov", beta = 0.9)
-
-    for (i in 1:10) {
-        theta <- updater_( theta, 0.5, grad )
-        print( theta )
-    }
-    environment( updater_ )$acc_grad_
-
-    theta <- runif( 4*11 )
-    sum(abs(do.call( .pack, args = .unpack(theta, nrow = 4))-theta))
-
 }
+
