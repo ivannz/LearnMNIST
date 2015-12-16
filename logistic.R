@@ -1,17 +1,23 @@
 #### An R script implementing the Logistic Regression pipeline.
 
-## Logistic regression
-## $$ p_k(x) = \frac{ e^{f_k(x)} }{ \sum_{j=1}^L e^{f_j(x)} } \,, $$
-##    where $f_k(x) = x' W_k $ and $x$ is augmented with extra 1 if bias
-##    term is required.
-## However softmax is invariant under uniform shifts of $(f_k)_{k=1}^L$. This makes
-## the coefficients poorely identified. Therefore we have to impose a constraint
-## that $(f_k)$ sum to $0$.
-#### TODO!!!
+## Logistic regression assigns probabilities to different classes via
+##     $$ p_k(x) = \frac{ e^{f_k(x)} }{ \sum_{j=1}^L e^{f_j(x)} } \,, $$
+##  where $f_k(x) = x' W_k $ and $x$ is augmented with extra 1 if bias
+##  term is required.
+## However softmax is invariant under uniform shifts of $(f_k)_{k=1}^L$.
+##  This makes the coefficients poorly identifiable, which compless us
+##  to add some sort of regularization, be it L^p regularization on
+##  weights $W_k$, or a constraint that the $K$-th class is the base
+##  classs.
+## The loss is actually a negative loglikelihood, or cross-entropy, and
+##  is computed as
+##      $$ l( x, y ) = - \sum_{l=1}^L e_{yl} \log p_l(x) \,, $$
+##  for each individual observation, and with
+##      $$ L( X, y ) = n^{-1} \sum_{i=1}^n l( x_i, y_i ) \,, $$
+##  for the entire dataset.
 
-## l( x, y ) = - \sum_{l=1}^L e_{yl} \log p_l(x)
-## L( X, y ) = n^{-1} \sum_{i=1}^n l( x_i, y_i )
-
+## In order to apply Stochastic Gradient Descent, one has to comput
+##  the gradinet of the loss function with respect to the parameters.
 ## Straighforward differentiation yields (dependency on $x$ is omitted)
 ##   $$ \frac{\partial p_k}{\partial f_k}
 ##          = \frac{ e^{f_k} }{ \sum_j e^{f_j} }
@@ -49,11 +55,12 @@
 ##  the derivative of which is
 ##   $$ \frac{\partial \Omega }{\partial W_k} = \lambda W_k \,. $$
 
-## in R matrix-vector elementwise operation are done over columns
-## IE R unravels matrix in column order and then applies the operation
-##  recylcing the original vector, if needed.
+## Remember: in R matrix-vector elementwise operation are done over columns
+##  (FORTRAN ordering), i.e. R unravels matrix in column order and then
+##  applies the operation recylcing the original vector if needed.
 
-#### PRIVATE FUNCTIONS
+###########################
+#### PRIVATE FUNCTIONS ####
 .get_update <- function( momentum = c( "simple", "nesterov", "none" ),
                          beta = 0, rms_weight = 0 ) {
 ## Creates a special function, which accepts the gradient, the current
@@ -111,16 +118,13 @@
 ##   the functional closure.
 }
 
-##### R's matrices are columnwise.
-
-## Creates a round-robin group assignment for an array of length n
 .group <- function( n, m )
+## Creates a round-robin group assignment for an array of length n
     rep( 1 : ( ( n + m - 1 ) %/% m ), m )[ 1 : n ]
 
-## Computes the softmax prediction of the logistic regression
 .predict_proba <- function( theta, X, .log = FALSE ) {
-## Compute the probabilities inferred by the model for
-##   the given input samples X.
+## Compute the probabilities inferred by the logistic
+##   regression for the given input samples X.
 ##  theta[matrix] -- the coefficients of the logisitc regression;
 ##  X[matrix] -- the current coefficients of the log regression model;
 ##  .log[bool] -- If this is set to TRUE, the logarithms of
@@ -168,15 +172,15 @@
     grad + lambda_ * theta
 }
 
-## Compute the logloss
 .logloss <- function( X, y, theta ) {
+## Compute the aver log-loss over the reuested sample.
     proba_ <- .predict_proba( theta, X )
     proba_ <- proba_[ matrix( c( 1 : nrow( X ), y ), ncol = 2 ) ]
     - mean( log( ifelse( proba_ > 0.0, ifelse( proba_ < 1.0, proba_, 1 - 1e-14 ), 1e-14 ) ) )
 }
 
-#### PUBLIC INTERFACE
-## Returns an environment (a container) for the model
+###########################
+#### PUBLIC INTERFACE #####
 init <- function( add_intercept = TRUE, lambda = 1.0, standardize = TRUE )
 ## Create an instance of the logisitc regression model.
 ##   add_intercept[boolean] -- whether to add a bias term to
@@ -184,9 +188,11 @@ init <- function( add_intercept = TRUE, lambda = 1.0, standardize = TRUE )
 ##   lambda[numeirc] -- the weight of L^2 regularizer;
 ##   standardize[boolean] -- determines whether the data should
 ##         be scaled to unit variance as well as mean shifted.
+## Returns an environment (a container) for the model
     list2env( list( add_intercept = add_intercept,
                     standardize = standardize,
-                    lambda = lambda ),
+                    lambda = lambda,
+                    class = "Logistic Regression" ),
               parent = emptyenv( ) )
 
 fit <- function( model, X, y,
@@ -215,11 +221,13 @@ fit <- function( model, X, y,
 ##  verbose[integer] -- determines the volume of debug and service messages
 ##        printed.
 
-## __docstring__
     stopifnot( is.environment( model ) )
     model$theta_ <- NULL
 ## Get the classes
-    model$classes_ <- sort( c( unique( y ) ) )
+    classes_ <- sort( c( unique( y ) ) )
+## Check if there is at least two classes in the train sample
+    stopifnot( length( classes_ ) > 1 )
+    model$classes_ <- classes_
 ## Define the dimensions of the weigh matrix
     model$dim_ <- c( ncol( X ) + if( model$add_intercept ) 1 else 0,
                      length( model$classes_ ) )
@@ -244,11 +252,14 @@ fit <- function( model, X, y,
 ## R evaluates lazily, so create and expression, parse and then compile it
         learning_rate <- eval( parse( text = sprintf( "function( kiter ) %g",
                                                       learning_rate ) ) )
-## Do the batch SGD loop
-    kiter <- 1
 ## Intialize $\theta$
     theta_ <- matrix( runif( model$dim_[ 2 ] * model$dim_[ 1 ] ) - 0.5,
-                      nrow = model$dim_[ 1 ] )
+                      nrow = model$dim_[ 1 ],
+                      dimnames = list( NULL, label = model$classes_ ) )
+## Store the intercept data
+    attr( theta_, "intercept" ) <- intercept_
+## Do the batch SGD loop
+    kiter <- 1
     tryCatch( { repeat {
 ## Stop if the number of iteration has been exceeded.
         if( kiter > niter ) break
@@ -315,9 +326,10 @@ predict_proba <- function( model, X ) {
 
     stopifnot( !is.null( model$theta_ ) )
     stopifnot( dim( X )[ 2 ] == model$dim_[ 1 ] - model$intercept_ )
+    dimnames_ <- dimnames( X )
 ## Standardize the data
     X <- t( ( t( X ) - model$mean_ ) / model$std_ )
-## Add the intercept if necessary
+## Add the intercept if necessary (cbind ruins dimnames)
     if( model$intercept_ > 0 ) X <- cbind( 1, X )
 ## Predict the class probabilities
     .predict_proba( model$theta_, X, .log = FALSE )
@@ -351,7 +363,8 @@ logloss <- function( model, X, y ) {
     - mean( log( ifelse( proba_ > 0.0, ifelse( proba_ < 1.0, proba_, 1 - 1e-14 ), 1e-14 ) ) )
 }
 
-#### User accessible functions
+###########################
+### SIMPLIFIED INTERFACE ##
 learnModel <- function( data, labels ) {
     model <- init( add_intercept = TRUE, lambda = 0.1, standardize = TRUE )
     fit( model, data, labels, 
@@ -361,18 +374,5 @@ learnModel <- function( data, labels ) {
          verbose = 1 )
 }
 
-testModel <- function( model, data ) predict( model, X = data )
-
-### Sandbox
-if( FALSE ) {
-    classifier <- learnModel( data = trainData, labels = trainLabels )
-    classifier <- logloss( classifier, data = trainData, labels = trainLabels )
-
-    images_ <- classifier$theta_[-1,]
-    images_ <- ( images_ - min( images_ ) ) / ( max( images_ ) - min( images_ ) )
-
-    for( n in 1:10 )
-        image( t(matrix(images_[,n], ncol=28, nrow=28)), Rowv=28, Colv=28, col = heat.colors(256),  margins=c(5,10))
-
-}
-
+testModel <- function( model, data )
+    predict( model, X = data )
