@@ -1,4 +1,4 @@
-rm( list = ls( all.names = TRUE ) ) ;  gc( )
+rm( list = ls( all.names = TRUE ) ) ; gc( )
 # This sciprt file contains a frame for learning handwritten digitals from the MNIST dataset
 setwd( "~/Github/LearnMNIST/" )
 source( "load_data.R" )
@@ -28,8 +28,17 @@ predictedLabels <- testModel(classifier, trainData)
 print("accuracy on training data:\t")
 print(sum(predictedLabels == trainLabels)/length(trainLabels))
 
+source( "metrics.R" )
 #calculate the following error metric for each class obtained on the train data:
 #Recall, precision, specificity, F-measure, FDR and ROC for each class separately. Use a package for ROC. 
+metrics <- cbind( precision( trainLabels, predictedLabels ),
+                  recall( trainLabels, predictedLabels ),
+                  F_measure( trainLabels, predictedLabels ),
+                  specificity( trainLabels, predictedLabels ),
+                  fdr( trainLabels, predictedLabels ) )
+names( dimnames( metrics ) ) <- c( "class", "metric" )
+print( metrics )
+roc_curve( trainLabels, predict_proba( classifier, trainData ) )
 
 
 # test the model
@@ -51,3 +60,12 @@ print(sum(predictedLabels == testLabels)/length(testLabels))
 
 #calculate the following error metric for each class obtained on the test data:
 #Recall, precision, specificity, F-measure, FDR and ROC for each class separately. Use a package for ROC. 
+metrics <- cbind( precision( testLabels, predictedLabels ),
+                  recall( testLabels, predictedLabels ),
+                  F_measure( testLabels, predictedLabels ),
+                  specificity( testLabels, predictedLabels ),
+                  fdr( testLabels, predictedLabels ) )
+names( dimnames( metrics ) ) <- c( "class", "metric" )
+print( metrics )
+roc_curve( testLabels, predict_proba( classifier, testData ) )
+
